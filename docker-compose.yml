@@ -1,0 +1,9 @@
+services:
+  db:
+    image: postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-annotex}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-annotex}
+      POSTGRES_DB: ${POSTGRES_DB:-annotex_db}
+    ports:
+      - "5433:5432"
