@@ -1,0 +1,92 @@
+[
+  {
+    "id": 1,
+    "text": "The app crashes when I click save.",
+    "category": "bug",
+    "sentiment": "negative",
+    "priority": "high",
+    "source": "web",
+    "created_at": "2026-03-25T10:15:00Z"
+  },
+  {
+    "id": 2,
+    "text": "Love the new dashboard layout!",
+    "category": "feedback",
+    "sentiment": "positive",
+    "priority": "low",
+    "source": "mobile",
+    "created_at": "2026-03-25T11:02:00Z"
+  },
+  {
+    "id": 3,
+    "text": "Please add dark mode support.",
+    "category": "feature_request",
+    "sentiment": "neutral",
+    "priority": "medium",
+    "source": "web",
+    "created_at": "2026-03-25T12:30:00Z"
+  },
+  {
+    "id": 4,
+    "text": "Login takes too long on slow networks.",
+    "category": "bug",
+    "sentiment": "negative",
+    "priority": "high",
+    "source": "api",
+    "created_at": "2026-03-26T08:44:00Z"
+  },
+  {
+    "id": 5,
+    "text": "Export to CSV works perfectly.",
+    "category": "feedback",
+    "sentiment": "positive",
+    "priority": "low",
+    "source": "web",
+    "created_at": "2026-03-26T09:10:00Z"
+  },
+  {
+    "id": 6,
+    "text": "Could you support keyboard shortcuts?",
+    "category": "feature_request",
+    "sentiment": "neutral",
+    "priority": "medium",
+    "source": "desktop",
+    "created_at": "2026-03-27T14:18:00Z"
+  },
+  {
+    "id": 7,
+    "text": "Search results are sometimes irrelevant.",
+    "category": "bug",
+    "sentiment": "negative",
+    "priority": "medium",
+    "source": "web",
+    "created_at": "2026-03-27T16:55:00Z"
+  },
+  {
+    "id": 8,
+    "text": "Onboarding tutorial was very helpful.",
+    "category": "feedback",
+    "sentiment": "positive",
+    "priority": "low",
+    "source": "mobile",
+    "created_at": "2026-03-28T07:40:00Z"
+  },
+  {
+    "id": 9,
+    "text": "Need bulk label assignment for speed.",
+    "category": "feature_request",
+    "sentiment": "neutral",
+    "priority": "high",
+    "source": "admin",
+    "created_at": "2026-03-28T13:22:00Z"
+  },
+  {
+    "id": 10,
+    "text": "Notifications are delayed by a few minutes.",
+    "category": "bug",
+    "sentiment": "negative",
+    "priority": "medium",
+    "source": "api",
+    "created_at": "2026-03-29T18:05:00Z"
+  }
+]
