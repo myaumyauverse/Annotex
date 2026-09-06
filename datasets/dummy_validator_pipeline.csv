@@ -1,0 +1,21 @@
+record_id,text,topic,source,language,priority
+1,"The new dashboard loads quickly and feels smooth.",product_review,web,en,high
+2,"Support never replied to my ticket and I am disappointed.",customer_support,email,en,high
+3,"The onboarding flow is okay but could be clearer.",onboarding,mobile,en,medium
+4,"Payment was processed instantly without any issue.",payments,web,en,high
+5,"The latest update introduced several annoying bugs.",release_feedback,app_store,en,high
+6,"I like the design, but I still need more customization options.",ui_feedback,community,en,medium
+7,"Login keeps failing on Firefox even after clearing cache.",authentication,web,en,high
+8,"The tutorial helped me finish my first task in minutes.",documentation,in_app,en,medium
+9,"Feature quality is average and not much better than before.",feature_feedback,survey,en,low
+10,"Excellent customer service, very professional and fast.",customer_support,chat,en,high
+11,"Notifications arrive too late to be useful.",notifications,mobile,en,medium
+12,"Everything worked exactly as expected today.",general_feedback,web,en,low
+13,"The export feature is broken for large files.",data_export,web,en,high
+14,"Performance improved a lot after the recent patch.",performance,release_notes,en,medium
+15,"I am neutral about this change; it neither helps nor hurts me.",feature_feedback,survey,en,low
+16,"Search results are irrelevant for common queries.",search,web,en,high
+17,"The validator workflow is straightforward and easy to follow.",validator_pipeline,web,en,medium
+18,"Too many popups interrupt the annotation process.",ux_feedback,app,en,medium
+19,"Great experience overall, I would recommend it.",general_feedback,community,en,low
+20,"Dataset upload failed twice before it finally worked.",dataset_upload,web,en,high
