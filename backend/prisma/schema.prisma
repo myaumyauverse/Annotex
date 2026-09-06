@@ -1,0 +1,177 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id             String        @id @default(uuid()) @db.Uuid
+  email          String        @unique
+  password       String
+  firstName      String
+  lastName       String
+  role           String        @default("contributor")
+  walletAddress  String?       @unique
+  isActive       Boolean       @default(true)
+  totalEarnings  Float         @default(0)
+  tasksCompleted Int           @default(0)
+  accuracyRate   Float         @default(0)
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  tasks          Task[]        @relation("TaskAssignee")
+  datasets       Dataset[]
+  labels         Label[]
+  payouts        Payout[]
+  transactions   Transaction[]
+
+  @@map("users")
+}
+
+model Dataset {
+  id              String        @id @default(uuid()) @db.Uuid
+  name            String
+  description     String?
+  format          String
+  filePath        String
+  totalRecords    Int           @default(0)
+  labeledRecords  Int           @default(0)
+  labelType       String        @default("text")
+  labelOptions    Json?
+  labelSchema     Json?
+  totalRewardSOL  Float         @default(0)
+  rewardPerRecord Float         @default(0)
+  maxLabelsPerRecord Int        @default(3)
+  consensusThreshold Float      @default(0.67)
+  schema          Json?
+  validationRules Json?
+  isActive        Boolean       @default(true)
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  createdById     String        @db.Uuid
+
+  createdBy       User          @relation(fields: [createdById], references: [id])
+  tasks           Task[]
+  records         DataRecord[]
+  payouts         Payout[]
+
+  @@map("datasets")
+}
+
+model DataRecord {
+  id              String        @id @default(uuid()) @db.Uuid
+  recordNumber    Int
+  rawData         Json
+  isLabeled       Boolean       @default(false)
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  datasetId       String        @db.Uuid
+
+  dataset         Dataset       @relation(fields: [datasetId], references: [id], onDelete: Cascade)
+  tasks           Task[]
+  labels          Label[]
+
+  @@unique([datasetId, recordNumber])
+  @@index([datasetId])
+  @@map("data_records")
+}
+
+model Task {
+  id                 String        @id @default(uuid()) @db.Uuid
+  title              String
+  description        String
+  status             String        @default("pending")
+  reward             Float
+  requiredLabels     Int           @default(3)
+  submittedLabels    Int           @default(0)
+  consensusThreshold Float         @default(0.7)
+  metadata           Json?
+  completedAt        DateTime?
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+  datasetId          String        @db.Uuid
+  recordId           String?       @db.Uuid
+  assignedToId       String?       @db.Uuid
+
+  dataset            Dataset       @relation(fields: [datasetId], references: [id], onDelete: Cascade)
+  record             DataRecord?   @relation(fields: [recordId], references: [id], onDelete: SetNull)
+  assignedTo         User?         @relation("TaskAssignee", fields: [assignedToId], references: [id])
+  labels             Label[]
+
+  @@index([datasetId])
+  @@index([recordId])
+  @@map("tasks")
+}
+
+model Label {
+  id              String        @id @default(uuid()) @db.Uuid
+  value           String
+  confidence      Float         @default(1)
+  isAccepted      Boolean       @default(false)
+  isRejected      Boolean       @default(false)
+  rejectionReason String?
+  timeSpentSeconds Int          @default(0)
+  metadata        Json?
+  createdAt       DateTime      @default(now())
+  taskId          String        @db.Uuid
+  recordId        String?       @db.Uuid
+  contributorId   String        @db.Uuid
+
+  task            Task          @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  record          DataRecord?   @relation(fields: [recordId], references: [id], onDelete: SetNull)
+  contributor     User          @relation(fields: [contributorId], references: [id])
+  payout          Payout?
+
+  @@index([taskId])
+  @@index([recordId])
+  @@map("labels")
+}
+
+model Payout {
+  id              String        @id @default(uuid()) @db.Uuid
+  amountSOL       Float
+  status          String        @default("pending")
+  txHash          String?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  processedAt     DateTime?
+  contributorId   String        @db.Uuid
+  datasetId       String        @db.Uuid
+  labelId         String?       @unique @db.Uuid
+
+  contributor     User          @relation(fields: [contributorId], references: [id])
+  dataset         Dataset       @relation(fields: [datasetId], references: [id], onDelete: Cascade)
+  label           Label?        @relation(fields: [labelId], references: [id], onDelete: SetNull)
+
+  @@index([contributorId])
+  @@index([datasetId])
+  @@map("payouts")
+}
+
+model Transaction {
+  id              String        @id @default(uuid()) @db.Uuid
+  amount          Float
+  status          String        @default("pending")
+  transactionHash String?
+  toAddress       String
+  fromAddress     String?
+  description     String?
+  errorMessage    String?
+  metadata        Json?
+  createdAt       DateTime      @default(now())
+  completedAt     DateTime?
+  userId          String        @db.Uuid
+
+  user            User          @relation(fields: [userId], references: [id])
+
+  @@map("transactions")
+}
