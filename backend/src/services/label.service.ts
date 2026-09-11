@@ -19,7 +19,7 @@ export class LabelService {
     timeSpentSeconds?: number;
     metadata?: Record<string, any>;
   }) {
-    // Verify task exists and is in progress
+    // Verify task exists
     const task = await prisma.task.findUnique({
       where: { id: labelData.taskId },
       include: {
@@ -32,11 +32,17 @@ export class LabelService {
       throw new AppError('Task not found', 404);
     }
 
-    if (task.status !== TaskStatus.IN_PROGRESS && task.status !== TaskStatus.PENDING) {
+    const isTaskAvailable =
+      task.status === TaskStatus.PENDING ||
+      task.status === TaskStatus.IN_PROGRESS ||
+      (task.status === TaskStatus.LABELED && task.submittedLabels < task.requiredLabels);
+
+    if (!isTaskAvailable) {
       throw new AppError('Task is not available for labeling', 400);
     }
 
-    if (task.assignedToId !== labelData.contributorId) {
+    // Check task assignment: if task is assigned to another user, throw 403
+    if (task.assignedToId && task.assignedToId.toLowerCase() !== labelData.contributorId.toLowerCase()) {
       throw new AppError('This task is not assigned to you', 403);
     }
 
@@ -76,6 +82,19 @@ export class LabelService {
       throw new AppError('You have already submitted a label for this task', 400);
     }
 
+    // Auto-assign task to contributor submitting the label if currently unassigned
+    if (!task.assignedToId) {
+      await prisma.task.update({
+        where: { id: task.id },
+        data: {
+          assignedToId: labelData.contributorId,
+          status: TaskStatus.IN_PROGRESS,
+        },
+      });
+      task.assignedToId = labelData.contributorId;
+      task.status = TaskStatus.IN_PROGRESS;
+    }
+
     // Create label
     const label = await prisma.label.create({
       data: {
@@ -100,8 +119,8 @@ export class LabelService {
       where: { id: task.id },
       data: {
         submittedLabels: { increment: 1 },
-        assignedToId: null,
-        status: isComplete ? TaskStatus.LABELED : TaskStatus.PENDING,
+        status: isFullyLabeled ? TaskStatus.LABELED : TaskStatus.IN_PROGRESS,
+        assignedToId: isFullyLabeled ? task.assignedToId : null,
       },
       select: {
         id: true,

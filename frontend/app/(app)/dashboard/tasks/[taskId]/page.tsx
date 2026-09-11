@@ -170,8 +170,63 @@ export default function TaskDetailsPage() {
   }, [taskId, accessToken]);
 
   useEffect(() => {
+    const fetchTask = async () => {
+      if (!taskId) return;
+      setTasksLoading(true);
+      setTaskError(null);
+      try {
+        const session = await getSession();
+        const token = session?.accessToken ?? accessToken;
+        if (!token) throw new Error('Missing session token. Please sign in again.');
+
+        const response = await fetch(`${API_BASE_URL}/tasks/${taskId}`, {
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        });
+        const payload = (await response.json()) as { success: boolean; message: string; data?: Task };
+        if (!response.ok || !payload.success || !payload.data) throw new Error(payload.message || 'Failed to load task');
+
+        let loadedTask = payload.data;
+        setTask(loadedTask);
+
+        // Auto-assign task if opened by contributor and currently unassigned or pending
+        if (
+          loadedTask &&
+          (loadedTask.status === 'pending' || loadedTask.status === 'in_progress') &&
+          (!loadedTask.assignedToId || (user?.id && loadedTask.assignedToId.toLowerCase() !== user.id.toLowerCase()))
+        ) {
+          try {
+            const assignRes = await fetch(`${API_BASE_URL}/tasks/${taskId}/assign`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+            });
+            if (assignRes.ok) {
+              const assignPayload = (await assignRes.json()) as { success: boolean; data?: Task };
+              if (assignPayload.data) {
+                loadedTask = assignPayload.data;
+                setTask(loadedTask);
+              }
+            }
+          } catch {
+            // Fall back gracefully
+          }
+        }
+
+        const recordsResponse = await fetch(`${API_BASE_URL}/tasks/${taskId}/records`, {
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        });
+        if (recordsResponse.ok) {
+          const rp = (await recordsResponse.json()) as { success: boolean; data?: { records?: TaskRecord[] } };
+          if (rp.success) setTaskRecords(rp.data?.records ?? []);
+        }
+      } catch (error) {
+        setTask(null);
+        setTaskError(error instanceof Error ? error.message : 'Failed to load task');
+      } finally {
+        setTasksLoading(false);
+      }
+    };
     void fetchTask();
-  }, [fetchTask]);
+  }, [taskId, accessToken, user?.id]);
 
   if (tasksLoading) {
     return (
@@ -197,7 +252,7 @@ export default function TaskDetailsPage() {
   const progressPercent = task.requiredLabels ? (task.submittedLabels / task.requiredLabels) * 100 : 0;
   const canSubmitLabel = isContributor() || isValidator();
   const isAcceptingSubmissions = task.status === 'pending' || task.status === 'in_progress';
-  const canLeaveTask = isContributor() && task.status === 'in_progress' && task.assignedToId === user?.id;
+  const canLeaveTask = isContributor() && task.status === 'in_progress' && !!user?.id && task.assignedToId?.toLowerCase() === user.id.toLowerCase();
   const activeRecord = task.record ?? taskRecords[0];
   const labelOptions = Array.isArray(task.dataset?.labelOptions)
     ? task.dataset.labelOptions.filter((o): o is string => typeof o === 'string')
@@ -255,6 +310,30 @@ export default function TaskDetailsPage() {
     }
   };
 
+  const handleStartLabeling = async () => {
+    if (isContributor() && task && (task.status === 'pending' || task.status === 'in_progress') && (!task.assignedToId || (user?.id && task.assignedToId.toLowerCase() !== user.id.toLowerCase()))) {
+      try {
+        const session = await getSession();
+        const token = session?.accessToken ?? accessToken;
+        if (token) {
+          const res = await fetch(`${API_BASE_URL}/tasks/${taskId}/assign`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          });
+          if (res.ok) {
+            const payload = (await res.json()) as { success: boolean; data?: Task };
+            if (payload.data) {
+              setTask(payload.data);
+            }
+          }
+        }
+      } catch {
+        // Fall back gracefully — backend submitLabel will auto-assign if necessary
+      }
+    }
+    setShowForm(true);
+  };
+
   return (
     /* flex-1 + min-h-0 + overflow-y-auto: fills the shell content slot and scrolls internally */
     <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
@@ -293,7 +372,7 @@ export default function TaskDetailsPage() {
       <div className={`p-6 ${showForm ? 'flex gap-5 items-start' : 'space-y-5'}`}>
 
         {/* Left column: always visible content */}
-        <div className={`space-y-5 ${ showForm ? 'w-1/2 shrink-0 sticky top-0' : '' }`}>
+        <div className={`space-y-5 ${showForm ? 'w-1/2 shrink-0 sticky top-0' : ''}`}>
           {taskError && (
             <div className="rounded-2xl border border-black/10 bg-white/70 px-4 py-3 text-sm" role="alert">
               {taskError}
