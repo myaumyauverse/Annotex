@@ -108,18 +108,15 @@ export class LabelService {
       },
     });
 
-    // Determine new status: only LABELED when all required labels are in
-    const currentCount = task.labels.length; // labels included in findUnique above
-    const newCount = currentCount + 1;
-    const isComplete = newCount >= task.requiredLabels;
+    const nextSubmittedCount = task.submittedLabels + 1;
+    const isFullyLabeled = nextSubmittedCount >= task.requiredLabels;
 
-    // Update task: clear assignment so the next contributor can claim it,
-    // and advance status only when enough labels have been collected.
+    // Update task submitted labels count & status
     const updatedTask = await prisma.task.update({
       where: { id: task.id },
       data: {
         submittedLabels: { increment: 1 },
-        status: isFullyLabeled ? TaskStatus.LABELED : TaskStatus.IN_PROGRESS,
+        status: isFullyLabeled ? TaskStatus.LABELED : TaskStatus.PENDING,
         assignedToId: isFullyLabeled ? task.assignedToId : null,
       },
       select: {
@@ -132,8 +129,12 @@ export class LabelService {
     logger.info(`Label submitted for task ${labelData.taskId} by user ${labelData.contributorId}`);
 
     // Check if we have enough labels for validation
-    if (isComplete) {
-      await this.validationService.validateTask(updatedTask.id);
+    if (isFullyLabeled) {
+      try {
+        await this.validationService.validateTask(updatedTask.id);
+      } catch (valErr) {
+        logger.warn(`Validation triggering failed for task ${updatedTask.id}: ${valErr}`);
+      }
     }
 
     return label;
