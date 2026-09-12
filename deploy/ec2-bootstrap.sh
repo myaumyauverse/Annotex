@@ -81,6 +81,13 @@ verify() {
   check "api reachable (https)"  bash -c "curl -sS -o /dev/null -w '%{http_code}' -X POST https://$HOST/api/v1/auth/login | grep -qE '^(400|401|422)$'"
   check "ports loopback-only"   bash -c "! ss -tln | grep -qE '0\.0\.0\.0:(3000|5000|5433)'"
   check "cert auto-renew"       sudo certbot renew --dry-run
+  check "frontend non-root"     bash -c "[ \"\$(sudo $COMPOSE exec -T frontend id -u)\" != 0 ]"
+  check "backend non-root"      bash -c "[ \"\$(sudo $COMPOSE exec -T backend id -u)\" != 0 ]"
+  check "log rotation capped"   bash -c "sudo $COMPOSE config | grep -q 'max-size'"
+  check "auto security updates" systemctl is-active --quiet unattended-upgrades
+  check "fail2ban running"      systemctl is-active --quiet fail2ban
+  check "backup timer armed"    systemctl is-active --quiet annotex-backup.timer
+  check "disk under 85%"        bash -c "[ \$(df --output=pcent / | tr -dc '0-9') -lt 85 ]"
 
   return $fail
 }
@@ -124,7 +131,8 @@ free -h | sed 's/^/    /'
 if ! command -v docker >/dev/null; then
   say "Installing Docker, Nginx, Certbot"
   sudo apt-get update -qq
-  sudo apt-get install -y -qq ca-certificates curl gnupg git nginx certbot python3-certbot-nginx
+  sudo apt-get install -y -qq ca-certificates curl gnupg git nginx certbot python3-certbot-nginx \
+    unattended-upgrades fail2ban
   sudo install -m 0755 -d /etc/apt/keyrings
   curl -fsSL https://download.docker.com/linux/ubuntu/gpg \
     | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
@@ -139,6 +147,16 @@ if ! command -v docker >/dev/null; then
 else
   say "Docker already installed, skipping"
 fi
+
+# ------------------------------------------------------- 2b. OS hardening
+# Security patches applied automatically, and SSH brute-force attempts banned.
+# The AMI already disables password logins, so fail2ban is defence in depth.
+say "Enabling automatic security updates and fail2ban"
+sudo systemctl enable --now unattended-upgrades >/dev/null 2>&1 || true
+sudo systemctl enable --now fail2ban >/dev/null 2>&1 || true
+for svc in unattended-upgrades fail2ban; do
+  printf '    %-22s%s\n' "$svc" "$(systemctl is-active "$svc" 2>/dev/null || echo inactive)"
+done
 
 # --------------------------------------------------------------- 3. clone
 if [ ! -d "$APP_DIR/.git" ]; then
@@ -181,6 +199,10 @@ PROJECT_TREASURY_WALLET=$WALLET
 PAYOUT_TOKEN_MINT=
 
 LOG_LEVEL=info
+
+# Set this to an S3 bucket name to have deploy/backup.sh copy backups offsite.
+# Without it, backups live only on this instance's disk.
+S3_BUCKET=
 
 NEXT_PUBLIC_API_BASE_URL=https://$HOST/api/v1
 NEXTAUTH_URL=https://$HOST
@@ -261,6 +283,53 @@ else
   sudo certbot --nginx -d "$HOST" --non-interactive --agree-tos \
     -m "$LE_EMAIL" --redirect --no-eff-email
 fi
+
+# ---------------------------------------------------- 7b. scheduled jobs
+# Two things reliably kill a 30GiB free-tier box: image/build-cache buildup
+# from repeated redeploys, and having no backup when something goes wrong.
+say "Installing nightly backup and weekly cleanup timers"
+
+sudo tee /etc/systemd/system/annotex-backup.service >/dev/null <<EOF
+[Unit]
+Description=Annotex database and uploads backup
+[Service]
+Type=oneshot
+User=$USER
+Environment=APP_DIR=$APP_DIR
+ExecStart=/bin/bash $APP_DIR/deploy/backup.sh
+EOF
+
+sudo tee /etc/systemd/system/annotex-backup.timer >/dev/null <<'EOF'
+[Unit]
+Description=Nightly Annotex backup
+[Timer]
+OnCalendar=*-*-* 03:30:00
+Persistent=true
+[Install]
+WantedBy=timers.target
+EOF
+
+sudo tee /etc/systemd/system/annotex-prune.service >/dev/null <<'EOF'
+[Unit]
+Description=Reclaim Docker disk space
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/docker system prune -af --filter until=168h
+EOF
+
+sudo tee /etc/systemd/system/annotex-prune.timer >/dev/null <<'EOF'
+[Unit]
+Description=Weekly Docker cleanup
+[Timer]
+OnCalendar=Sun *-*-* 04:30:00
+Persistent=true
+[Install]
+WantedBy=timers.target
+EOF
+
+sudo systemctl daemon-reload
+sudo systemctl enable --now annotex-backup.timer annotex-prune.timer >/dev/null 2>&1 || true
+systemctl list-timers --no-pager 'annotex-*' 2>/dev/null | sed 's/^/    /' | head -5
 
 # -------------------------------------------------------------- 8. verify
 say "Verifying"
