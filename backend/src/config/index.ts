@@ -107,6 +107,9 @@ export const config = {
 
   upload: {
     maxFileSize: parseInt(process.env.MAX_FILE_SIZE || '10485760', 10), // 10MB
+    // Ceiling on what a .zip may expand to. The upload cap above bounds the
+    // archive, not its contents.
+    maxExtractedSize: parseInt(process.env.MAX_EXTRACTED_SIZE || '209715200', 10), // 200MB
     uploadPath: process.env.UPLOAD_PATH || 'uploads/',
   },
 
