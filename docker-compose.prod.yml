@@ -1,7 +1,17 @@
+# Container logs are unbounded by default. On a 30 GiB free-tier disk that ends
+# with Postgres writing into a full filesystem, which corrupts it. Cap every
+# service at 30MB (3 x 10MB) of retained logs.
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   db:
     image: postgres:16-alpine
     restart: unless-stopped
+    logging: *default-logging
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-annotex}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-annotex}
@@ -23,6 +33,7 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     restart: unless-stopped
+    logging: *default-logging
     depends_on:
       db:
         condition: service_healthy
@@ -67,6 +78,7 @@ services:
       args:
         NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://localhost:5000/api/v1}
     restart: unless-stopped
+    logging: *default-logging
     depends_on:
       backend:
         condition: service_started
