@@ -44,22 +44,10 @@ Be careful here, because "AWS Free Tier" does not mean what most guides say it m
 
 - **Accounts created after roughly July 2025** get a 6-month credit plan, not the old
   12-month always-free tier. Check your own account's plan before assuming anything.
-- **Public IPv4 addresses bill at about $0.005/hour** (~$3.60/month). Since 1 February
-  2024 this applies to **every** public IPv4 address, including an Elastic IP that is
-  attached and in use. Older guides say Elastic IPs are "free while attached and charged
-  only when idle" — that rule no longer exists. What covers you is the free tier's 750
-  hours/month of public IPv4, not the fact that it is attached.
-- A `t2.micro`/`t3.micro` with 30 GiB of gp3 storage is within the free allowances on an
-  eligible account.
-
-| Resource | Free allowance | Rule |
-|---|---|---|
-| EC2 hours | 750 hrs/month | Run exactly **one** instance. 750 hrs covers one instance 24/7. |
-| Instance type | `t2.micro` / `t3.micro` | Not `t2.small` or larger. |
-| EBS storage | 30 GiB | Set the volume to 30 GiB at launch. |
-| Public IPv4 | 750 hrs/month | One Elastic IP, attached to the running instance. |
-| Outbound data | 100 GB/month | Ample for this workload. |
-| EBS snapshots | 1 GB-month | **Not enough to snapshot a 30 GiB volume.** Use [backups](#backups) instead. |
+- **Public IPv4 addresses bill at about $0.005/hour** (~$3.60/month) once you are past the
+  free 750 hours/month. This applies to Elastic IPs even while attached and in use.
+- A `t2.micro`/`t3.micro` with 30 GiB of gp3 storage is within the free allowances on a
+  new account.
 
 The budget alert in Part 1 is the first step for a reason. Do not skip it.
 
@@ -268,72 +256,37 @@ $C logs --tail=100 frontend
 $C restart backend
 ```
 
-### Backups
+### Backing up
 
-The bootstrap script installs a **nightly backup timer** (03:30) that dumps the database
-and archives uploads to `~/annotex-backups`, keeping 7 days.
-
-```bash
-bash ~/Annotex/deploy/backup.sh            # run one now
-systemctl list-timers 'annotex-*'          # confirm it is scheduled
-ls -lh ~/annotex-backups
-```
-
-Restore a dump — this overwrites current data, and gives you 10 seconds to abort:
+The database lives in a Docker volume, which survives rebuilds but not a deleted
+instance. Take real backups before you have data you care about losing.
 
 ```bash
-bash ~/Annotex/deploy/backup.sh --restore ~/annotex-backups/annotex-db-2026-09-12-0330.sql.gz
+cd ~/Annotex
+# Database
+sudo docker compose --env-file .env.production -f docker-compose.prod.yml exec -T db \
+  pg_dump -U annotex annotex_db > ~/annotex-$(date +%F).sql
+
+# Uploaded files (check the exact volume name with: sudo docker volume ls)
+sudo docker run --rm \
+  -v annotex_annotex-uploads:/data \
+  -v "$HOME":/backup alpine \
+  tar czf /backup/annotex-uploads-$(date +%F).tar.gz -C /data .
 ```
 
-> **A backup on the same disk is not a backup.** By default these files live on the same
-> EBS volume as the thing they are protecting. They survive a bad migration or a dropped
-> table. They do **not** survive the instance being terminated, which is the failure that
-> actually loses everything.
-
-**Recommended: copy them to S3.** A dump of this data is measured in KB to MB. S3 Standard
-is about $0.023 per GB-month, so 100 MB costs roughly **$0.002/month** — effectively
-nothing, and the only option that survives losing the instance.
-
-1. Create a bucket (`aws s3 mb s3://my-annotex-backups`, or via the console).
-2. Give the instance write access — an **IAM role attached to the instance** is preferred
-   over access keys on disk. EC2 → Actions → Security → Modify IAM role.
-3. Install the CLI: `sudo apt-get install -y awscli`
-4. Add `S3_BUCKET=my-annotex-backups` to `~/Annotex/.env.production`.
-
-`backup.sh` picks it up on the next run and copies both files offsite. Set a bucket
-lifecycle rule to expire objects after 30 days so storage never grows.
-
-If you would rather stay at literally zero cost, pull them down by hand instead, and
-accept that anything since your last download is lost if the instance dies:
+Copy them off the server — a backup on the same disk is not a backup:
 
 ```bash
 # from your own machine
-scp -i ~/.ssh/annotex-key.pem ubuntu@YOUR_ELASTIC_IP:'~/annotex-backups/*' .
+scp -i ~/.ssh/annotex-key.pem ubuntu@YOUR_ELASTIC_IP:~/annotex-*.sql .
 ```
 
-### Disk space
-
-You have 30 GiB, and two things eat it quietly. A full disk does not just stop uploads —
-**Postgres can corrupt when it cannot write**, so this matters more than it sounds.
-
-The bootstrap script handles both automatically:
-
-- **Container logs** are capped at 10 MB × 3 files per service in `docker-compose.prod.yml`.
-  Without that cap they grow forever.
-- **A weekly prune timer** (Sundays, 04:30) reclaims old images and build cache, which
-  accumulate on every `up -d --build`.
-
-Check and intervene manually when needed:
+To restore a database dump:
 
 ```bash
-df -h /                                        # overall usage
-sudo docker system df                          # what Docker is holding
-sudo docker system prune -af --filter until=168h   # reclaim now
-du -sh ~/annotex-backups                       # backups growing?
+cat annotex-2026-09-11.sql | sudo docker compose --env-file .env.production \
+  -f docker-compose.prod.yml exec -T db psql -U annotex -d annotex_db
 ```
-
-If you are over ~85% and pruning does not help, the usual culprit is uploaded datasets.
-`bash ~/Annotex/deploy/ec2-bootstrap.sh --verify-only` includes a disk check.
 
 ### Moving to a real domain
 
@@ -371,54 +324,6 @@ Certbot installs a systemd timer that renews automatically. Confirm it works:
 ```bash
 sudo certbot renew --dry-run
 ```
-
----
-
-## Security
-
-What a deployment from this guide actually enforces. Everything listed is verifiable with
-the command shown — treat any security claim you cannot check as not true.
-
-| Control | How it works | Verify |
-|---|---|---|
-| Only Nginx is exposed | The three containers publish to `127.0.0.1` only | `ss -tln \| grep -E '3000\|5000\|5433'` — all `127.0.0.1` |
-| HTTPS everywhere | Let's Encrypt via Certbot, HTTP redirected to HTTPS | `curl -sI http://HOST` → 301 |
-| Certificate renewal | systemd timer, **not** cron | `systemctl list-timers \| grep certbot` |
-| Containers run unprivileged | Both frontend and backend run as UID 1001 | `docker compose exec frontend id -u` → `1001` |
-| Login brute-force limit | 5 failed attempts per IP per 15 min; successes are not counted | `backend/src/middlewares/rateLimiter.ts` |
-| General API rate limit | 100 requests per IP per 15 min | same file |
-| Security headers | `helmet` — nosniff, frame denial, and related | `curl -sI https://HOST/api/v1 \| grep -i x-` |
-| Password storage | bcrypt, cost factor 12 | `backend/src/services/auth.service.ts` |
-| Secrets | Three distinct 32-byte values, file mode 0600, gitignored | `ls -l ~/Annotex/.env.production` → `-rw-------` |
-| Startup safety | Backend refuses to boot in production with missing or placeholder secrets | `backend/src/config/index.ts` |
-| Upload restrictions | Extension allowlist, 10 MB cap, 200 MB expanded-archive cap | `backend/src/middlewares/upload.ts` |
-| OS patches | `unattended-upgrades` enabled | `systemctl is-active unattended-upgrades` |
-| SSH brute-force | `fail2ban` enabled; the AMI already disables password login | `sudo fail2ban-client status sshd` |
-
-Run `bash ~/Annotex/deploy/ec2-bootstrap.sh --verify-only` to check most of these at once.
-
-### What this does not give you
-
-Be clear-eyed about the gaps, rather than assuming a checklist covers them:
-
-- **`.env.production` at mode 0600 is readable by its owner (`ubuntu`) and by root.** It
-  is not encrypted at rest. Anyone with SSH access to this instance has your secrets.
-- **GitHub branch protection does not prevent committing secrets.** It controls merges and
-  force-pushes. Secret scanning is a separate feature you must enable in repo settings.
-- **No WAF, no DDoS protection, no intrusion detection.** One instance behind Nginx.
-- **Uploaded files are served from the same origin as the app.** The extension allowlist
-  is the control preventing active content; do not widen it to include `.html` or `.svg`.
-- **No audit logging** of administrative actions.
-- **One instance, one availability zone.** No redundancy — a hardware failure is downtime.
-
-### Recommended, not automated
-
-- Enable **Secret Scanning + Push Protection** in the GitHub repo settings.
-- Restrict the SSH security group rule to your own IP rather than `0.0.0.0/0`.
-- Rotate `JWT_SECRET` and `NEXTAUTH_SECRET` if they are ever exposed. Both invalidate
-  existing sessions, so expect everyone to be logged out.
-- Attach an **IAM role** to the instance for S3 backups instead of putting access keys in
-  a file.
 
 ---
 
@@ -474,19 +379,6 @@ whichever container is missing or restarting.
 - Port 80 must be open in your security group and reachable from the internet.
 - The hostname must resolve to this server: `dig +short YOUR-HOSTNAME`.
 - Let's Encrypt rate-limits repeated failures. Wait an hour rather than retrying in a loop.
-
-### Disk is full / site suddenly broken
-
-A full disk takes down Postgres and can corrupt it, so treat this as urgent:
-
-```bash
-df -h /
-sudo docker system df
-sudo docker system prune -af --filter until=168h
-```
-
-If that does not free enough, check `~/annotex-backups` and the uploads volume. See
-[Disk space](#disk-space).
 
 ### Uploads disappear after a rebuild
 
@@ -686,19 +578,9 @@ DevTools check in [Part 5](#part-5--verify-it-actually-works).
 | Compose file | `docker-compose.prod.yml` |
 | Services | `db`, `backend`, `frontend` |
 | Volumes | `annotex-postgres-data`, `annotex-uploads` |
-| Health endpoint | `/health` (not `/api/v1/health`) — checks the database |
+| Health endpoint | `/health` (not `/api/v1/health`) |
 | API base | `/api/v1` |
 | Nginx site | `/etc/nginx/sites-available/annotex` |
 | Certificates | `/etc/letsencrypt/live/<hostname>/` |
-| Upload size cap | 10 MB (backend), 12 MB (Nginx), 200 MB expanded archive |
+| Upload size cap | 10 MB (backend), 12 MB (Nginx) |
 | Roles | `admin`, `contributor`, `validator` |
-| Backups | `~/annotex-backups`, nightly 03:30, 7-day retention |
-| Timers | `annotex-backup.timer`, `annotex-prune.timer`, `certbot.timer` |
-
-### If you ever move the database to RDS
-
-Change **both** `DATABASE_URL` and `DIRECT_URL` in `.env.production`. The application
-connects with `DATABASE_URL`, but Prisma migrations read `DIRECT_URL`
-(`backend/prisma.config.ts`). Changing only the first leaves migrations pointed at the old
-database, which fails in confusing ways. Remove the `db` service from the compose file
-once you have migrated the data across.

@@ -8,51 +8,6 @@ import { prisma } from '../config/prisma.js';
 import { AppError } from '../middlewares/errorHandler.js';
 import { DatasetFormat } from '../types/index.js';
 
-/**
- * Reject archives that expand to more than `limit` bytes.
- *
- * The upload cap limits the size of the .zip, not what comes out of it: a 10MB
- * archive of zeroes expands to gigabytes and fills the disk, which on a small
- * instance takes Postgres down with it. Check the listing before extracting.
- */
-export function assertArchiveWithinLimit(filePath: string, limit: number): void {
-  let listing: string;
-  try {
-    listing = execFileSync('unzip', ['-l', filePath], {
-      encoding: 'utf-8',
-      maxBuffer: 16 * 1024 * 1024,
-    });
-  } catch {
-    throw new AppError('Could not read archive contents', 400);
-  }
-
-  // Entry rows carry a length, a date and a time. The trailing summary row has
-  // a length but no date, so matching on all three avoids double counting it.
-  const entryPattern = /^\s*(\d+)\s+\d[\d-]*\s+\d[\d:]*\s+\S/;
-  let total = 0;
-  let entries = 0;
-
-  for (const line of listing.split('\n')) {
-    const match = entryPattern.exec(line);
-    if (match) {
-      total += Number(match[1]);
-      entries += 1;
-    }
-  }
-
-  if (entries === 0) {
-    throw new AppError('Archive does not list any readable entries', 400);
-  }
-
-  if (total > limit) {
-    const mb = (bytes: number): number => Math.round(bytes / (1024 * 1024));
-    throw new AppError(
-      `Archive expands to about ${mb(total)}MB, over the ${mb(limit)}MB limit`,
-      400
-    );
-  }
-}
-
 export class DatasetService {
   private getUploadRoot(): string {
     return path.resolve(config.upload.uploadPath);
@@ -131,8 +86,6 @@ export class DatasetService {
 
     if (ext === '.zip') {
       const bundleName = `${path.basename(originalName, ext)}-${Date.now()}-${Math.round(Math.random() * 1E9)}`;
-      assertArchiveWithinLimit(filePath, config.upload.maxExtractedSize);
-
       const extractDir = fs.mkdtempSync(path.join(this.getUploadRoot(), `${bundleName}-`));
 
       execFileSync('unzip', ['-oq', filePath, '-d', extractDir], { stdio: 'ignore' });
