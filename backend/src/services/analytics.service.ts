@@ -125,36 +125,18 @@ export class AnalyticsService {
    * Get quality metrics
    */
   async getQualityMetrics() {
-    // Validated status is the source of truth for completed validation. The
-    // label-count check previously excluded valid tasks when their labels were
-    // not returned as expected by the relation query.
-    const tasks = await prisma.task.findMany({
-      where: { status: TaskStatus.VALIDATED },
-      include: { labels: true },
-    });
+    const reviewedLabelWhere = {
+      OR: [{ isAccepted: true }, { isRejected: true }],
+    };
 
-    let totalConsensusScore = 0;
-    let consensusTaskCount = 0;
-
-    for (const task of tasks) {
-      if (task.labels.length === 0) {
-        continue;
-      }
-
-      const labelCounts = new Map<string, number>();
-      task.labels.forEach((label) => {
-        labelCounts.set(label.value, (labelCounts.get(label.value) || 0) + 1);
-      });
-
-      const maxCount = Math.max(...labelCounts.values());
-      totalConsensusScore += maxCount / task.labels.length;
-      consensusTaskCount++;
-    }
-
-    const averageConsensusScore =
-      consensusTaskCount > 0 ? totalConsensusScore / consensusTaskCount : 0;
-
-    const [contributors, submittedCounts, acceptedCounts, reviewedCounts] = await Promise.all([
+    const [reviewedLabels, approvedLabels, reviewedTasks, contributors, submittedCounts, acceptedCounts, reviewedCounts] = await Promise.all([
+      prisma.label.count({ where: reviewedLabelWhere }),
+      prisma.label.count({ where: { isAccepted: true } }),
+      prisma.label.findMany({
+        where: reviewedLabelWhere,
+        select: { taskId: true },
+        distinct: ['taskId'],
+      }),
       prisma.user.findMany({
         where: { role: UserRole.CONTRIBUTOR, isActive: true },
         select: { id: true, firstName: true, lastName: true },
@@ -174,6 +156,9 @@ export class AnalyticsService {
         _count: { _all: true },
       }),
     ]);
+
+    const averageConsensusScore =
+      reviewedLabels > 0 ? (approvedLabels / reviewedLabels) * 100 : 0;
 
     const submittedByContributor = new Map(
       submittedCounts.map((item) => [item.contributorId, item._count._all])
@@ -206,8 +191,10 @@ export class AnalyticsService {
       .slice(0, 10);
 
     return {
-      averageConsensusScore: averageConsensusScore.toFixed(2),
-      validatedTasks: tasks.length,
+      averageConsensusScore: averageConsensusScore.toFixed(1),
+      validatedTasks: reviewedTasks.length,
+      reviewedLabels,
+      approvedLabels,
       activeContributors: contributorsWithPerformance.length,
       topPerformers,
     };

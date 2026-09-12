@@ -159,7 +159,6 @@ export function AuthForm({ mode }: AuthFormProps) {
           </span>
         ) : (
           <span>
-            This uses NextAuth credentials with backend auth routes at <code className="font-mono text-foreground">/api/v1/auth</code>.
           </span>
         )}
       </div>

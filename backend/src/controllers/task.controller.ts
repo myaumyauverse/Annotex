@@ -18,7 +18,7 @@ export class TaskController {
     const limit = parseInt(req.query.limit as string) || 10;
     const status = req.query.status as TaskStatus | undefined;
 
-    const result = await this.taskService.getAllTasks(page, limit, status);
+    const result = await this.taskService.getAllTasks(page, limit, status, req.userId);
 
     const response: ApiResponse = {
       success: true,

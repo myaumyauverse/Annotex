@@ -2,11 +2,8 @@ import { logger } from '../config/logger.js';
 import { prisma } from '../config/prisma.js';
 import { AppError } from '../middlewares/errorHandler.js';
 import { TaskStatus } from '../types/index.js';
-import { ValidationService } from './validation.service.js';
 
 export class LabelService {
-  private validationService = new ValidationService();
-
   /**
    * Submit a label for a task
    */
@@ -112,7 +109,7 @@ export class LabelService {
     const isFullyLabeled = nextSubmittedCount >= task.requiredLabels;
 
     // Update task submitted labels count & status
-    const updatedTask = await prisma.task.update({
+    await prisma.task.update({
       where: { id: task.id },
       data: {
         submittedLabels: { increment: 1 },
@@ -128,14 +125,8 @@ export class LabelService {
 
     logger.info(`Label submitted for task ${labelData.taskId} by user ${labelData.contributorId}`);
 
-    // Check if we have enough labels for validation
-    if (isFullyLabeled) {
-      try {
-        await this.validationService.validateTask(updatedTask.id);
-      } catch (valErr) {
-        logger.warn(`Validation triggering failed for task ${updatedTask.id}: ${valErr}`);
-      }
-    }
+    // `labeled` is the review-ready state. Consensus must be decided by a
+    // validator, not automatically during the final contributor submission.
 
     return label;
   }
@@ -216,52 +207,91 @@ export class LabelService {
       throw new AppError('Label not found', 404);
     }
 
-    const updatedLabel = await prisma.label.update({
-      where: { id: labelId },
-      data: {
-        isAccepted,
-        isRejected: !isAccepted,
-        rejectionReason: rejectionReason ?? null,
-      },
-      include: {
-        contributor: true,
-      },
+    if (label.isAccepted || label.isRejected) {
+      throw new AppError('Label has already been reviewed', 400);
+    }
+
+    const updatedLabel = await prisma.$transaction(async (tx) => {
+      // Always target the individual label. Other labels for the same task
+      // must remain untouched until they are explicitly reviewed.
+      const reviewedLabel = await tx.label.update({
+        where: { id: labelId },
+        data: {
+          isAccepted,
+          isRejected: !isAccepted,
+          rejectionReason: isAccepted ? null : rejectionReason ?? 'Rejected by reviewer',
+        },
+        include: {
+          contributor: true,
+        },
+      });
+
+      const remainingPendingLabels = await tx.label.count({
+        where: {
+          taskId: label.taskId,
+          isAccepted: false,
+          isRejected: false,
+        },
+      });
+
+      if (remainingPendingLabels === 0) {
+        const taskLabels = await tx.label.findMany({
+          where: { taskId: label.taskId },
+          select: { isAccepted: true },
+        });
+        const allLabelsAccepted = taskLabels.every((taskLabel) => taskLabel.isAccepted);
+
+        await tx.task.update({
+          where: { id: label.taskId },
+          data: {
+            status: allLabelsAccepted ? TaskStatus.VALIDATED : TaskStatus.REJECTED,
+            completedAt: new Date(),
+          },
+        });
+      } else {
+        await tx.task.update({
+          where: { id: label.taskId },
+          data: {
+            status: TaskStatus.LABELED,
+            completedAt: null,
+          },
+        });
+      }
+
+      return reviewedLabel;
     });
 
-    await prisma.task.update({
-      where: { id: label.taskId },
-      data: {
-        status: isAccepted ? TaskStatus.VALIDATED : TaskStatus.REJECTED,
-        completedAt: new Date(),
-      },
-    });
-
-    // Update contributor statistics
+    // Update contributor statistics after either decision. Rejected labels
+    // affect the reviewed-label denominator even though they do not increment
+    // completed accepted tasks.
+    const contributor = updatedLabel.contributor;
     if (isAccepted) {
-      const contributor = updatedLabel.contributor;
       await prisma.user.update({
         where: { id: contributor.id },
         data: {
           tasksCompleted: { increment: 1 },
         },
       });
-
-      // Recalculate accuracy rate
-      const totalLabels = await prisma.label.count({
-        where: { contributorId: contributor.id },
-      });
-
-      const acceptedLabels = await prisma.label.count({
-        where: { contributorId: contributor.id, isAccepted: true },
-      });
-
-      await prisma.user.update({
-        where: { id: contributor.id },
-        data: {
-          accuracyRate: totalLabels > 0 ? (acceptedLabels / totalLabels) * 100 : 0,
-        },
-      });
     }
+
+    const totalReviewedLabels = await prisma.label.count({
+      where: {
+        contributorId: contributor.id,
+        OR: [{ isAccepted: true }, { isRejected: true }],
+      },
+    });
+
+    const acceptedLabels = await prisma.label.count({
+      where: { contributorId: contributor.id, isAccepted: true },
+    });
+
+    await prisma.user.update({
+      where: { id: contributor.id },
+      data: {
+        accuracyRate:
+          totalReviewedLabels > 0 ? (acceptedLabels / totalReviewedLabels) * 100 : 0,
+      },
+    });
 
     logger.info(`Label ${labelId} ${isAccepted ? 'accepted' : 'rejected'}`);
 

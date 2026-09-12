@@ -134,8 +134,11 @@ export default function TasksPage() {
                 const progress = task.requiredLabels
                   ? Math.min((task.submittedLabels / task.requiredLabels) * 100, 100)
                   : 0;
-                const { label, cardClass, badgeClass } = getStatusStyle(task.status);
-                const canOpen = task.status === "pending" || task.status === "in_progress";
+                const isAtCapacity = task.submittedLabels >= task.requiredLabels;
+                const canOpen = !isAtCapacity && !task.hasSubmittedLabel;
+                const { label, cardClass, badgeClass } = getStatusStyle(
+                  canOpen && task.submittedLabels > 0 ? "pending" : task.status
+                );
 
                 return (
                   <div
