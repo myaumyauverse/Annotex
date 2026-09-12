@@ -11,6 +11,7 @@ export interface Task {
   reward: number;
   requiredLabels: number;
   submittedLabels: number;
+  hasSubmittedLabel: boolean;
   consensusThreshold: number;
   metadata?: Record<string, unknown>;
   createdAt: string;

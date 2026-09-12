@@ -25,6 +25,8 @@ type DashboardStats = {
 type QualityMetrics = {
   averageConsensusScore: string;
   validatedTasks: number;
+  reviewedLabels: number;
+  approvedLabels: number;
   activeContributors: number;
   topPerformers: Array<{
     id: string;
@@ -159,7 +161,7 @@ export default function AnalyticsPage() {
               <KpiCard
                 icon={<Gauge className="h-5 w-5" />}
                 label="Avg consensus score"
-                value={`${formatConsensus(quality?.averageConsensusScore)}%`}
+                value={`${quality?.averageConsensusScore ?? "0.0"}%`}
               />
               <KpiCard
                 icon={<Users className="h-5 w-5" />}
@@ -245,11 +247,6 @@ export default function AnalyticsPage() {
       )}
     </section>
   );
-}
-
-function formatConsensus(value?: string) {
-  const score = Number(value);
-  return Number.isFinite(score) ? (score * 100).toFixed(1) : "0.0";
 }
 
 function KpiCard({

@@ -7,7 +7,7 @@ export class TaskService {
   /**
    * Get all tasks with filters and pagination
    */
-  async getAllTasks(page: number = 1, limit: number = 10, status?: TaskStatus) {
+  async getAllTasks(page: number = 1, limit: number = 10, status?: TaskStatus, userId?: string) {
     const skip = (page - 1) * limit;
 
     const where = status ? { status } : undefined;
@@ -20,13 +20,29 @@ export class TaskService {
         include: {
           dataset: true,
           assignedTo: true,
+          _count: {
+            select: { labels: true },
+          },
+          ...(userId
+            ? {
+                labels: {
+                  where: { contributorId: userId },
+                  select: { id: true },
+                  take: 1,
+                },
+              }
+            : {}),
         },
       }),
       prisma.task.count({ where }),
     ]);
 
     return {
-      tasks,
+      tasks: tasks.map(({ _count, labels, ...task }) => ({
+        ...task,
+        submittedLabels: _count.labels,
+        hasSubmittedLabel: Boolean(labels?.length),
+      })),
       pagination: {
         page,
         limit,
