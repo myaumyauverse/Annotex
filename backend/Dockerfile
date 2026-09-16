@@ -31,9 +31,9 @@ ENV DIRECT_URL=${DIRECT_URL}
 COPY package*.json ./
 COPY prisma.config.ts ./
 COPY prisma ./prisma
-RUN npm ci --omit=dev
-
 COPY --from=builder /app/dist ./dist
+
+RUN npm ci --omit=dev
 
 RUN mkdir -p logs uploads
 
