@@ -27,6 +27,20 @@ module.exports = {
   ],
   coverageDirectory: 'coverage',
   coverageReporters: ['text', 'lcov', 'html'],
+  // A floor, not a target. Set just under the measured baseline on main
+  // (50.95 stmts / 66.4 branch / 39.21 funcs) so ordinary variation does not
+  // fail a build, while a real drop does. Without this, coverage could fall to
+  // zero and CI would still pass.
+  //
+  // Raise these as suites land. They are meant to ratchet upward and never down.
+  coverageThreshold: {
+    global: {
+      statements: 48,
+      branches: 62,
+      functions: 36,
+      lines: 48,
+    },
+  },
   moduleNameMapper: {
     '^@solana/web3\\.js$': '<rootDir>/src/__tests__/mocks/solanaWeb3.ts',
     '^@solana/pay$': '<rootDir>/src/__tests__/mocks/solanaPay.ts',
