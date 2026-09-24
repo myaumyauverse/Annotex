@@ -14,6 +14,17 @@ root_volume_gb = 16
 // NEXT_PUBLIC_API_BASE_URL is inlined at build time.
 domain = ""
 
+// Hostnames that 301-redirect to `domain` instead of serving the app, and are
+// added to the certificate. Usually just the www form.
+//
+// Keeping one origin is not cosmetic: CORS_ORIGIN is a single value derived
+// from `domain`, so a browser left on a second origin while running a bundle
+// that calls the canonical one gets its API requests blocked.
+//
+// Every name here must already resolve to the Elastic IP before apply —
+// certbot validates each one over HTTP-01 and the whole run fails if any misses.
+redirect_hostnames = []
+
 letsencrypt_email = "you@example.com"
 
 // The backend refuses to start in production without this.

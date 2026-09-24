@@ -189,7 +189,7 @@ Wants=network-online.target
 
 [Service]
 Type=oneshot
-ExecStart=/usr/bin/certbot --nginx -d $HOST --non-interactive --agree-tos -m ${letsencrypt_email} --redirect --no-eff-email
+ExecStart=/usr/bin/certbot --nginx ${cert_domain_args} --non-interactive --agree-tos -m ${letsencrypt_email} --redirect --no-eff-email
 EOF
 
 cat > /etc/systemd/system/annotex-tls.timer <<'EOF'

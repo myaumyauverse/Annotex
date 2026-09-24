@@ -73,3 +73,18 @@ server {
         proxy_set_header X-Forwarded-Proto $scheme;
     }
 }
+%{ if length(redirect_hostnames) > 0 ~}
+
+# Canonical host is ${host}; everything else redirects here so there is exactly
+# one origin. CORS_ORIGIN is a single value, so a browser left on a secondary
+# origin while running a bundle that calls the canonical one would be blocked.
+#
+# certbot rewrites this block to listen 443 and adds the TLS directives, the
+# same way it does for the app block above.
+server {
+    listen 80;
+    server_name ${join(" ", redirect_hostnames)};
+
+    return 301 https://${host}$request_uri;
+}
+%{ endif ~}
