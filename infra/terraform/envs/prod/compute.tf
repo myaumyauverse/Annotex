@@ -78,18 +78,24 @@ resource "aws_instance" "app" {
   user_data_base64 = base64gzip(templatefile("${path.module}/templates/user_data.sh.tftpl", {
     host              = local.host
     letsencrypt_email = var.letsencrypt_email
-    region            = var.region
-    ssm_prefix        = local.ssm_prefix
-    registry          = local.registry
-    backup_bucket     = aws_s3_bucket.backups.id
-    alerts_topic_arn  = var.alerts_topic_arn
-    app_dir           = "/opt/annotex"
+    # The canonical host comes first so certbot names the lineage after it;
+    # ConditionPathExists on the TLS unit keys off that same name.
+    cert_domain_args = join(" ", [
+      for h in concat([local.host], var.redirect_hostnames) : "-d ${h}"
+    ])
+    region           = var.region
+    ssm_prefix       = local.ssm_prefix
+    registry         = local.registry
+    backup_bucket    = aws_s3_bucket.backups.id
+    alerts_topic_arn = var.alerts_topic_arn
+    app_dir          = "/opt/annotex"
 
     # Injected as opaque strings. Substituted values are not re-interpolated, so
     # the compose file's ${VAR} syntax survives untouched.
     compose_file = file("${path.module}/templates/docker-compose.ecr.yml")
     nginx_conf = templatefile("${path.module}/templates/nginx-annotex.conf.tftpl", {
-      host = local.host
+      host               = local.host
+      redirect_hostnames = var.redirect_hostnames
     })
   }))
 

@@ -28,6 +28,22 @@ variable "domain" {
   default     = ""
 }
 
+variable "redirect_hostnames" {
+  description = <<-EOT
+    Additional hostnames that 301-redirect to var.domain rather than serving the
+    app, typically the www form.
+
+    Keeping exactly one origin is not cosmetic: CORS_ORIGIN is a single value
+    derived from var.domain, so a browser left on a second origin while running
+    a bundle that calls the canonical one has its API requests blocked.
+
+    Each name is added to the certificate as well, so each must already resolve
+    to the Elastic IP before apply — certbot validates every -d over HTTP-01.
+  EOT
+  type        = list(string)
+  default     = []
+}
+
 variable "letsencrypt_email" {
   description = "Address Let's Encrypt sends expiry notices to."
   type        = string
